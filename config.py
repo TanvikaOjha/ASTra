@@ -1,22 +1,3 @@
-"""Central configuration for the Repo Analyzer (Code Graph-RAG).
-
-Every tunable value lives here so that no module needs magic constants.
-Values can be overridden with environment variables prefixed ``RAG_`` (for
-example ``RAG_LLM_MODEL=qwen2.5-coder:3b``) or via a local ``.env`` file.
-
-Honest notes
-------------
-* ``embed_dim`` is a *declared* expectation (768 for ``nomic-embed-text``).
-  The indexer must still check the real vector length returned by Ollama on
-  the first embedding call and fail loudly on a mismatch.
-* ``chars_per_token`` is a deliberately conservative heuristic, not a real
-  tokenizer. It over-estimates token counts so prompts stay inside the
-  context window; it does not match Qwen's tokenizer exactly.
-* ``reranker_model`` must be a key of ``flashrank.Config.model_file_map``.
-  ``scripts/setup_models.sh`` and ``/health`` validate it; the default was
-  checked against flashrank 0.2.10.
-"""
-
 from __future__ import annotations
 
 import logging
