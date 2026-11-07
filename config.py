@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+import math
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, model_validator  
+from pydantic_settings import BaseSettings, SettingsConfigDict 
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ------------------------------------------------------------------ #
     # Models (Ollama)
-  
+    # ------------------------------------------------------------------ #
     ollama_base_url: str = "http://localhost:11434"
     llm_model: str = "qwen2.5-coder:7b"
     embed_model: str = "nomic-embed-text"
@@ -36,7 +38,9 @@ class Settings(BaseSettings):
     embed_batch_size: int = Field(default=16, gt=0)
     ollama_timeout_s: float = Field(default=300.0, gt=0)
 
+    # ------------------------------------------------------------------ #
     # Storage paths
+    # ------------------------------------------------------------------ #
     qdrant_path: Path = Path("./qdrant_local")
     qdrant_collection: str = "code_chunks"
     index_store_path: Path = Path("./index_store")
@@ -44,7 +48,9 @@ class Settings(BaseSettings):
     #: Where remote repositories are cloned.
     repos_dir: Path = Path("./repos")
 
+    # ------------------------------------------------------------------ #
     # Ingestion limits
+    # ------------------------------------------------------------------ #
     max_file_bytes: int = Field(default=512_000, gt=0)
     max_source_files: int = Field(default=2000, gt=0)
     #: Chunks above this (estimated) token count are split by the fallback splitter.
@@ -68,17 +74,25 @@ class Settings(BaseSettings):
             ".vscode",
         }
     )
-    #: Max lines of a class/function signature kept in a context header.
+    #: Max chars of a class/function signature kept in a context header or member list.
     header_signature_max_chars: int = Field(default=200, gt=0)
+    #: Lower bound for the per-chunk character budget (guards against tiny budgets).
+    min_chunk_chars: int = Field(default=200, gt=0)
+    #: ``--depth`` used when cloning a remote repository (shallow clone).
+    git_clone_depth: int = Field(default=1, ge=1)
 
+    # ------------------------------------------------------------------ #
     # Token estimation and context budget
+    # ------------------------------------------------------------------ #
     chars_per_token: float = Field(default=3.2, gt=0)
     generation_reserve_tokens: int = Field(default=1200, gt=0)
     system_prompt_reserve_tokens: int = Field(default=500, gt=0)
     #: Fraction of the remaining prompt budget given to graph paths (rest = snippets).
     graph_budget_fraction: float = Field(default=0.25, ge=0.0, le=0.9)
 
+    # ------------------------------------------------------------------ #
     # Retrieval
+    # ------------------------------------------------------------------ #
     top_k: int = Field(default=5, ge=1, le=20)
     dense_top_n: int = Field(default=30, ge=1)
     bm25_top_n: int = Field(default=30, ge=1)
@@ -89,12 +103,16 @@ class Settings(BaseSettings):
     reranker_model: str = "ms-marco-MiniLM-L-12-v2"
     rerank_candidates: int = Field(default=20, ge=1)
 
+    # ------------------------------------------------------------------ #
     # Graph expansion
+    # ------------------------------------------------------------------ #
     default_hops: int = Field(default=1, ge=1, le=2)
     graph_max_nodes: int = Field(default=40, ge=1)
     pagerank_damping: float = Field(default=0.85, gt=0.0, lt=1.0)
 
+    # ------------------------------------------------------------------ #
     # Repo map / router
+    # ------------------------------------------------------------------ #
     repo_map_tree_depth: int = Field(default=3, ge=1)
     readme_excerpt_chars: int = Field(default=1500, ge=0)
     repo_map_top_k_nodes: int = Field(default=15, ge=1)
@@ -102,7 +120,9 @@ class Settings(BaseSettings):
     #: Use the LLM to classify ambiguous queries (heuristics always run first).
     use_llm_router_fallback: bool = False
 
+    # ------------------------------------------------------------------ #
     # API / UI
+    # ------------------------------------------------------------------ #
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8000, ge=1, le=65535)
     #: Qdrant local mode locks its folder, so exactly one worker is allowed.
@@ -111,11 +131,15 @@ class Settings(BaseSettings):
     api_request_timeout_s: float = Field(default=600.0, gt=0)
     job_poll_interval_s: float = Field(default=1.0, gt=0)
 
+    # ------------------------------------------------------------------ #
     # Logging
+    # ------------------------------------------------------------------ #
     log_level: str = "INFO"
     log_format: str = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 
+    # ------------------------------------------------------------------ #
     # Validators
+    # ------------------------------------------------------------------ #
     @field_validator("api_workers")
     @classmethod
     def _single_worker_only(cls, value: int) -> int:
@@ -147,11 +171,25 @@ class Settings(BaseSettings):
             raise ValueError("chunk_overlap_tokens must be smaller than max_chunk_tokens")
         return self
 
+    # ------------------------------------------------------------------ #
     # Derived values
+    # ------------------------------------------------------------------ #
     @property
     def prompt_budget_tokens(self) -> int:
         """Tokens available for snippets + graph paths + the user question."""
         return self.num_ctx - self.generation_reserve_tokens - self.system_prompt_reserve_tokens
+
+    def estimate_tokens(self, text: str) -> int:
+        """Conservative offline token estimate (``len(text) / chars_per_token``, rounded up).
+
+        A heuristic, not Qwen's or nomic's tokenizer; deliberately over-counts.
+        """
+        return math.ceil(len(text) / self.chars_per_token) if text else 0
+
+    @property
+    def max_chunk_chars(self) -> int:
+        """Character form of ``max_chunk_tokens`` under the same heuristic."""
+        return int(self.max_chunk_tokens * self.chars_per_token)
 
     @property
     def manifest_path(self) -> Path:
